@@ -1,0 +1,336 @@
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+    $(document).ready(function () {
+        var d, t;
+        d = new Date();
+        d = d.toLocaleString('en-GB'),
+            d = d.replace(',', '');
+        d = (d.toLocaleString()).split(' ');
+        t = d[1];
+        d = d[0].split('/');
+        d = d[2] + '-' + d[1] + '-' + d[0] + ' ' + t;
+        var result;
+        var data;
+        var price;
+        var finalPrice = 114;
+        var stripe = Stripe('pk key', {});
+        if (document.querySelector("button"))
+            document.querySelector("button").disabled = true;
+        var elements = stripe.elements();
+        var style = {
+            base: {
+                color: "#32325d",
+                fontFamily: 'Arial, sans-serif',
+                fontSmoothing: "antialiased",
+                fontSize: "16px",
+                "::placeholder": {
+                    color: "#32325d"
+                }
+            },
+            invalid: {
+                fontFamily: 'Arial, sans-serif',
+                color: "#fa755a",
+                iconColor: "#fa755a"
+            }
+        };
+        var card = elements.create("card", {
+            style: style
+        });
+
+        var iban = elements.create("iban", {
+            style: style,
+            supportedCountries: ['SEPA']
+        });
+        var auBankAccount = elements.create("auBankAccount", {
+            style: style
+        });
+
+        var idealBank = elements.create("idealBank", {
+            style: style
+        });
+        //var p24Bank = elements.create("p24Bank", { style: style });
+        paymentRequest = stripe.paymentRequest({
+            country: 'GB',
+            currency: 'gbp',
+            receipt_email: document.getElementById('email').value,
+            total: {
+                label: 'Premium account upgrade',
+                amount: 11400,
+            },
+            requestPayerName: false,
+            requestPayerEmail: true,
+        });
+
+        var prButton = elements.create('paymentRequestButton', {
+            paymentRequest: paymentRequest,
+        });
+
+        paymentRequest.canMakePayment().then(function (result) {
+            if (result) {
+                prButton.mount('#payment-request-button');
+            } else {
+                document.getElementById('payment-request-error').innerHTML =
+                    "Your browser doesn't support Google or Apple Wallet";
+                document.getElementById('payment-request-button').style.display = 'none';
+            }
+        });
+
+        card.mount("#card-element");
+
+        iban.mount("#iban-element");
+        auBankAccount.mount("#auBankAccount-element");
+        idealBank.mount("#idealBank-element");
+        //p24Bank.mount("#p24Bank-element");
+        card.on("change", function (event) {
+            // Disable the Pay button if there are no card details in the Element
+            loading(false);
+            document.querySelector("button").disabled = event.empty;
+            document.querySelector("#card-error").textContent = event.error ? event.error.message : "";
+        });
+        var form = document.getElementById("payment-form");
+        form.addEventListener("submit", function (event) {
+            event.preventDefault();
+            loading(true);
+            $.ajax({
+                method: "POST",
+                data: {
+                    updatePrice: finalPrice,
+                    customerEmail: document.getElementById('email').value,
+                    customerSiteID: document.getElementById('customerID').value,
+                    customerName: document.getElementById('customerName').value
+                },
+                success: function (res) {
+                    res = JSON.parse(res);
+                    result = res;
+                    data = res;
+                    // Complete payment when the submit button is clicked
+                    payWithCard(stripe, card, data.client_secret);
+                },
+                error: function () {
+                    loading(false);
+                }
+            });
+        });
+
+        var formIdea = document.getElementById("payment-form-idea");
+        formIdea.addEventListener("submit", function (event) {
+            event.preventDefault();
+            $.ajax({
+                method: "POST",
+                data: {
+                    updatePrice: finalPrice,
+                    customerEmail: document.getElementById('email').value,
+                    customerSiteID: document.getElementById('customerID').value,
+                    customerName: document.getElementById('customerName').value
+                },
+                success: function (res) {
+                    res = JSON.parse(res);
+                    result = res;
+                    data = res;
+                    // Complete payment when the submit button is clicked
+                    payWithIdea(stripe, idealBank, data.client_secret);
+                }
+            });
+        });
+        // Calls stripe.confirmCardPayment
+        // If the card requires authentication Stripe shows a pop-up modal to
+        // prompt the user to enter authentication details without leaving your page.
+        var payWithCard = function (stripe, card, client_secret) {
+            stripe
+                .confirmCardPayment(client_secret, {
+                    receipt_email: document.getElementById('email').value,
+                    payment_method: {
+                        card: card
+                    }
+                })
+                .then(function (result) {
+                    if (result.error) {
+                        loading(false);
+                        // Show error to your customer
+                        showError(result.error.message);
+                    } else {
+                        loading(true);
+                        // The payment succeeded!
+                        $("#payDate").val(d);
+                        if (result.paymentIntent.amount == 114) {
+                            $("#payForMonths").val(12);
+                        } else {
+                            $("#payForMonths").val(1);
+                        }
+                        $.ajax({
+                            type: "POST",
+                            data: {
+                                "payForMonths": $("#payForMonths").val(),
+                                "payDate": $("#payDate").val(),
+                                'recEmail': document.getElementById('email').value,
+                                'payId': result.paymentIntent.id
+                            }
+                        }).done(function (data) {
+                            orderComplete(result.paymentIntent.id);
+                            location.reload();
+                        })
+                    }
+                })
+        };
+        var payWithIdea = function (stripe, idealBank, client_secret) {
+            loading(true);
+            stripe
+                .confirmIdealPayment(client_secret, {
+                    payment_method: {
+                        ideal: idealBank,
+                    },
+                    // Return URL where the customer should be redirected after the authorization.
+                    return_url: window.location.href,
+                })
+                .then(function (result) {
+                    if (result.error) {
+                        loading(false);
+                        alert(result.error);
+                    } else {
+                        loading(true);
+                        $("#payDate").val(d);
+                        if (result.paymentIntent.amount == 114) {
+                            $("#payForMonths").val(12);
+                        } else {
+                            $("#payForMonths").val(1);
+                        }
+                        $.ajax({
+                            type: "POST",
+                            data: {
+                                "payForMonths": $("#payForMonths").val(),
+                                "payDate": $("#payDate").val(),
+                                'recEmail': document.getElementById('email').value,
+                                'payId': result.paymentIntent.id
+                            }
+                        }).done(function (data) {
+                            orderComplete(result.paymentIntent.id);
+                            location.reload();
+                        })
+                    }
+                })
+        }
+
+        paymentRequest.on('paymentmethod', function (ev) {
+            // Confirm the PaymentIntent without handling potential next actions (yet).
+            stripe.confirmCardPayment(
+                clientSecret, {
+                    receipt_email: document.getElementById('email').value,
+                    payment_method: ev.paymentMethod.id
+                }, {
+                    handleActions: false
+                }
+            ).then(function (confirmResult) {
+                if (confirmResult.error) {
+                    loading(false);
+                    // Report to the browser that the payment failed, prompting it to
+                    // re-show the payment interface, or show an error message and close
+                    // the payment interface.
+                    ev.complete('fail');
+                } else {
+                    // Report to the browser that the confirmation was successful, prompting
+                    // it to close the browser payment method collection interface.
+                    ev.complete('success');
+                    // Check if the PaymentIntent requires any actions and if so let Stripe.js
+                    // handle the flow. If using an API version older than "2019-02-11" instead
+                    // instead check for: `paymentIntent.status === "requires_source_action"`.
+                    if (confirmResult.paymentIntent.status === "requires_action") {
+                        // Let Stripe.js handle the rest of the payment flow.
+                        stripe.confirmCardPayment(clientSecret).then(function (result) {
+                            if (result.error) {
+                                loading(false);
+                                alert("Error, try new payment method");
+                                // The payment failed -- ask your customer for a new payment method.
+                            } else {
+                                loading(true);
+                                let orderTimeArr = d.split(" ");
+                                let orderDate = orderTimeArr[0]
+                                let orderTime = orderTimeArr[1]
+                                orderDate = orderDate.split("-");
+                                orderTime = orderTime.split(":");
+                                let finalDate = new Date(orderDate[0], orderDate[2] - 1,
+                                    orderDate[1], orderTime[0], orderTime[1],
+                                    orderTime[2]);
+                                let finalDateString = finalDate.toLocaleString('en-GB')
+                                    .toString().replace(",", " ").replace("/", "-")
+                                    .replace("/", "-");
+                                $("#payDate").val(d);
+                                if (result.paymentIntent.amount == 114) {
+                                    $("#payForMonths").val(12);
+                                } else {
+                                    $("#payForMonths").val(1);
+                                }
+                                $.ajax({
+                                    type: "POST",
+                                    data: {
+                                        "payForMonths": $("#payForMonths")
+                                        .val(),
+                                        "payDate": $("#payDate").val(),
+                                        'recEmail': document.getElementById(
+                                            'email').value,
+                                        'payId': result.paymentIntent.id
+                                    }
+                                }).done(function (data) {
+                                    orderComplete(confirmResult.paymentIntent
+                                        .id);
+                                    location.reload();
+                                })
+                            }
+                        });
+                    } else {
+                        loading(true);
+                        //orderComplete(confirmResult.paymentIntent.id);
+                        $("#payDate").val(d);
+                        if (result.paymentIntent.amount == 114) {
+                            $("#payForMonths").val(12);
+                        } else {
+                            $("#payForMonths").val(1);
+                        }
+                        $.ajax({
+                            type: "POST",
+                            data: {
+                                "payForMonths": $("#payForMonths").val(),
+                                "payDate": $("#payDate").val(),
+                                'recEmail': document.getElementById('email').value,
+                                'payId': result.paymentIntent.id
+                            }
+                        }).done(function (data) {
+                            orderComplete(confirmResult.paymentIntent.id);
+                            location.reload();
+                        })
+                    }
+                }
+            });
+        });
+
+
+        /* ------- UI helpers ------- */
+        // Shows a success message when the payment is complete
+        var orderComplete = function (paymentIntentId) {
+            loading(false);
+            document.querySelector(".result-message").classList.remove("hidden");
+            document.querySelector("button").disabled = true;
+        };
+        // Show the customer the error from Stripe if their card fails to charge
+        var showError = function (errorMsgText) {
+            loading(false);
+            var errorMsg = document.querySelector("#card-error");
+            errorMsg.textContent = errorMsgText;
+            setTimeout(function () {
+                errorMsg.textContent = "";
+            }, 4000);
+        };
+        // Show a spinner on payment submission
+        var loading = function (isLoading) {
+            if (isLoading) {
+                // Disable the button and show a spinner
+                document.querySelector("button").disabled = true;
+                document.querySelector("#spinner").classList.remove("hidden");
+                document.querySelector("#button-text").classList.add("hidden");
+            } else {
+                document.querySelector("button").disabled = false;
+                document.querySelector("#spinner").classList.add("hidden");
+                document.querySelector("#button-text").classList.remove("hidden");
+            }
+        };
+    })
+</script>
